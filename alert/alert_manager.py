@@ -76,3 +76,44 @@ def fire_alert(confidence, frame=None):
     except Exception as e:
         print(f"⚠️ Alarm could not be played: {e}")
 
+def weapon_alert(weapon_type, confidence, screenshot_path):
+    from datetime import datetime
+    import csv
+    import os
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    log_file = "alert/weapon_log.csv"
+
+    file_exists = os.path.exists(log_file)
+
+    with open(log_file, "a", newline="") as file:
+        writer = csv.writer(file)
+
+        if not file_exists:
+            writer.writerow([
+                "Timestamp",
+                "Event",
+                "Weapon",
+                "Confidence",
+                "Screenshot"
+            ])
+
+        writer.writerow([
+            timestamp,
+            "WEAPON DETECTED",
+            weapon_type,
+            f"{confidence:.2f}",
+            screenshot_path
+        ])
+
+    print("\n" + "=" * 50)
+    print("🚨 WEAPON ALERT")
+    print("=" * 50)
+    print(f"Time       : {timestamp}")
+    print(f"Weapon     : {weapon_type}")
+    print(f"Confidence : {confidence:.2f}")
+    print(f"Screenshot : {screenshot_path}")
+    print("Status     : WEAPON CONFIRMED")
+    print("=" * 50 + "\n")
+
