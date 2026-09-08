@@ -1,0 +1,5 @@
+Timestamp,Event,Sound,Confidence,Clip
+2026-09-08 22:43:37,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_0s.wav
+2026-09-08 22:53:58,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_0s.wav
+2026-09-08 22:59:00,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_11s.wav
+2026-09-08 23:09:50,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_0s.wav

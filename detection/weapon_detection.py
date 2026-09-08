@@ -44,7 +44,6 @@ for result in results:
     if weapon_detected:
 
         consecutive_weapon_frames += 1
-
         print(
             f"Weapon detected | "
             f"Frame confirmation: "
