@@ -2,3 +2,7 @@ Timestamp,Event,Weapon,Confidence,Screenshot
 2026-09-06 20:25:39,WEAPON DETECTED,knife,0.60,alert/screenshots/weapon_knife_20260906_202539.jpg
 2026-09-06 20:46:26,WEAPON DETECTED,gun,0.55,alert/screenshots/weapon_gun_20260906_204625.jpg
 2026-09-06 20:48:20,WEAPON DETECTED,gun,0.53,alert/screenshots/weapon_gun_20260906_204820.jpg
+2026-09-10 10:01:27,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_100127.jpg
+2026-09-10 10:18:25,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_101825.jpg
+2026-09-10 10:19:54,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_101954.jpg
+2026-09-10 10:30:08,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_103008.jpg

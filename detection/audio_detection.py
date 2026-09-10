@@ -20,9 +20,9 @@ Usage:
 
     python detection/audio_detection.py --source data/raw/audio/normal.mp3
 
-    python detection/audio_detection.py --source data/raw/videos/test.mp4
+    python detection/audio_detection.py --source data/raw/videos/test.mp4=
 """
-
+from fusion.event_format import create_event
 import argparse
 import os
 import sys
@@ -800,6 +800,14 @@ def run_on_audio(
             confidence,
             evidence_path
         )
+        audio_event = create_event(
+           event=name.lower().replace(" ", "_"),
+           label=name,
+            confidence=confidence,
+           timestamp=timestamp)
+
+        print("\nSTANDARDIZED AUDIO EVENT:")
+        print(audio_event)
 
     # --------------------------------------------------------
     # ANALYZE
