@@ -1,9 +1,15 @@
-from fusion.event_format import create_event
+import os
+
+# Force OpenCV to use TCP for RTSP
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
+import cv2
 from ultralytics import YOLO
 from alert.alert_manager import weapon_alert
+from fusion.event_format import create_event
 from datetime import datetime
-import cv2
-import os
+
+from camera.camera_stream import CameraStream
 
 
 # ============================================================
@@ -11,6 +17,8 @@ import os
 # ============================================================
 
 MODEL_PATH = "model/detection/gun_knife_yolo11n.pt"
+
+RTSP_URL = "rtsp://127.0.0.1:8554/weapon"
 
 CONFIDENCE_THRESHOLD = 0.40
 REQUIRED_FRAMES = 3
@@ -20,7 +28,7 @@ REQUIRED_FRAMES = 3
 # WEAPON DETECTOR
 # ============================================================
 
-def detect_weapon(source):
+def detect_weapon(camera):
 
     model = YOLO(MODEL_PATH)
 
@@ -32,14 +40,34 @@ def detect_weapon(source):
         exist_ok=True
     )
 
-    results = model.predict(
-        source=source,
-        save=True,
-        conf=CONFIDENCE_THRESHOLD,
-        stream=True
-    )
+    frame_number = 0
 
-    for frame_number, result in enumerate(results):
+    print("\n🔫 Weapon detector started.")
+    print("Press Q to quit.\n")
+
+    while True:
+
+        frame = camera.read()
+
+        if frame is None:
+
+            print("⚠️ Failed to read frame.")
+
+            break
+
+        frame_number += 1
+
+        # ----------------------------------------------------
+        # RUN YOLO ON CURRENT FRAME
+        # ----------------------------------------------------
+
+        results = model.predict(
+            source=frame,
+            conf=CONFIDENCE_THRESHOLD,
+            verbose=False
+        )
+
+        result = results[0]
 
         weapon_detected = False
         highest_confidence = 0.0
@@ -86,6 +114,17 @@ def detect_weapon(source):
             consecutive_weapon_frames = 0
 
         # ----------------------------------------------------
+        # DRAW DETECTIONS
+        # ----------------------------------------------------
+
+        annotated_frame = result.plot()
+
+        cv2.imshow(
+            "Vigilix - Weapon Detection",
+            annotated_frame
+        )
+
+        # ----------------------------------------------------
         # CONFIRMED WEAPON
         # ----------------------------------------------------
 
@@ -104,11 +143,9 @@ def detect_weapon(source):
                 f"{timestamp}.jpg"
             )
 
-            annotated_image = result.plot()
-
             cv2.imwrite(
                 screenshot_path,
-                annotated_image
+                annotated_frame
             )
 
             # Existing alert system
@@ -126,11 +163,11 @@ def detect_weapon(source):
                 event="weapon",
                 label=detected_weapon,
                 confidence=highest_confidence,
-                timestamp=frame_number/30.0
+                timestamp=frame_number / camera.get_fps()
             )
 
             print(
-                "\nSTANDARDIZED WEAPON EVENT:"
+                "\n🚨 STANDARDIZED WEAPON EVENT:"
             )
 
             print(weapon_event)
@@ -143,6 +180,18 @@ def detect_weapon(source):
 
             return weapon_event
 
+        # ----------------------------------------------------
+        # QUIT
+        # ----------------------------------------------------
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+
+            print("\nWeapon detection stopped by user.")
+
+            break
+
+    cv2.destroyAllWindows()
+
     print(
         "\nWeapon detection completed!"
     )
@@ -151,17 +200,27 @@ def detect_weapon(source):
 
 
 # ============================================================
-# STANDALONE TEST
+# STANDALONE RTSP TEST
 # ============================================================
 
 if __name__ == "__main__":
 
-    event = detect_weapon(
-        "data/raw/videos/weapon_test.mp4"
+    camera = CameraStream(
+        source=RTSP_URL
     )
 
-    print(
-        "\nFINAL WEAPON EVENT:"
-    )
+    try:
 
-    print(event)
+        camera.start()
+
+        event = detect_weapon(camera)
+
+        print(
+            "\nFINAL WEAPON EVENT:"
+        )
+
+        print(event)
+
+    finally:
+
+        camera.release()

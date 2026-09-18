@@ -6,3 +6,5 @@ Timestamp,Event,Weapon,Confidence,Screenshot
 2026-09-10 10:18:25,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_101825.jpg
 2026-09-10 10:19:54,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_101954.jpg
 2026-09-10 10:30:08,WEAPON DETECTED,gun,0.53,alert\screenshots\weapon_gun_20260910_103008.jpg
+2026-09-19 01:35:30,WEAPON DETECTED,gun,0.52,alert\screenshots\weapon_gun_20260919_013530.jpg
+2026-09-19 01:36:02,WEAPON DETECTED,gun,0.59,alert\screenshots\weapon_gun_20260919_013602.jpg

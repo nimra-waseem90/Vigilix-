@@ -8,9 +8,6 @@ class CameraStream:
         self.source = source
         self.cap = None
 
-    # ========================================================
-    # START STREAM
-    # ========================================================
 
     def start(self):
 
@@ -33,10 +30,7 @@ class CameraStream:
         print("✅ Stream connected successfully")
 
         return self
-
-    # ========================================================
-    # READ FRAME
-    # ========================================================
+ 
 
     def read(self):
 
@@ -53,10 +47,7 @@ class CameraStream:
             return None
 
         return frame
-
-    # ========================================================
-    # GET FPS
-    # ========================================================
+ 
 
     def get_fps(self):
 
@@ -73,10 +64,7 @@ class CameraStream:
             fps = 30.0
 
         return fps
-
-    # ========================================================
-    # RELEASE STREAM
-    # ========================================================
+ 
 
     def release(self):
 

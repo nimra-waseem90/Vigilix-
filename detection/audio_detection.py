@@ -1,28 +1,3 @@
-"""
-Vigilix Audio Detection
-
-Uses a pretrained Audio Spectrogram Transformer (AST) to detect
-security-related sounds from audio files or video audio tracks.
-
-Detects:
-- Gunshots
-- Explosions
-- Screams
-- Shouts
-- Glass breaking
-- Sirens
-- Alarms
-- Smoke alarms
-
-Usage:
-
-    python detection/audio_detection.py --source data/raw/audio/test2.wav
-
-    python detection/audio_detection.py --source data/raw/audio/normal.mp3
-
-    python detection/audio_detection.py --source data/raw/videos/test.mp4=
-"""
-from fusion.event_format import create_event
 import argparse
 import os
 import sys
@@ -30,12 +5,6 @@ import tempfile
 import shutil
 
 import numpy as np
-
-
-# ============================================================
-# PROJECT ROOT
-# ============================================================
-
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(
         os.path.abspath(__file__)
@@ -44,15 +13,10 @@ PROJECT_ROOT = os.path.dirname(
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+from fusion.event_format import create_event
 
 
 from alert.alert_manager import audio_alert, ALERT_DIR
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
 MODEL_ID = "MIT/ast-finetuned-audioset-10-10-0.4593"
 
 TARGET_SR = 16000
@@ -63,20 +27,7 @@ WINDOW_SECONDS = 2.0
 # Move forward 1 second
 # 50% overlap
 HOP_SECONDS = 1.0
-
-# Temporary testing threshold.
-#
-# Your pistol-shot sample produced approximately:
-# Gunshot, gunfire = 0.089
-#
-# Therefore 0.08 is being used for testing.
 CONFIDENCE_THRESHOLD = 0.08
-
-
-# ============================================================
-# SECURITY AUDIO WATCHLIST
-# ============================================================
-
 WATCHLIST = {
     "Gunshot, gunfire": "Gunshot",
     "Explosion": "Explosion",
@@ -87,12 +38,6 @@ WATCHLIST = {
     "Alarm": "Alarm",
     "Smoke detector": "Smoke alarm",
 }
-
-
-# ============================================================
-# SUPPORTED FILE TYPES
-# ============================================================
-
 AUDIO_EXTENSIONS = {
     ".wav",
     ".wave",
@@ -109,20 +54,8 @@ VIDEO_EXTENSIONS = {
     ".mkv",
     ".webm",
 }
-
-
-# ============================================================
-# GLOBAL MODEL
-# ============================================================
-
 _model = None
 _feature_extractor = None
-
-
-# ============================================================
-# LOAD AST MODEL
-# ============================================================
-
 def _load_model():
 
     global _model
@@ -850,15 +783,422 @@ def run_on_audio(
 
     return events
 
-
-# ============================================================
-# RUN VIDEO
-# ============================================================
-
 def run_on_video(
     video_path,
     keep_wav=False
 ):
+ 
+ def run_on_rtsp(
+    rtsp_url,
+    required_hits=1
+ ):
+
+    import subprocess
+    import torch
+    import soundfile as sf
+
+    print("\n========================================")
+    print("       VIGILIX RTSP AUDIO DETECTION")
+    print("========================================")
+
+    print("\nRTSP source:")
+    print(rtsp_url)
+
+    print("\nStarting FFmpeg audio receiver...")
+
+     
+
+    command = [
+        "ffmpeg",
+
+        "-rtsp_transport",
+        "tcp",
+
+        "-i",
+        rtsp_url,
+
+        "-vn",
+
+        "-ac",
+        "1",
+
+        "-ar",
+        str(TARGET_SR),
+
+        "-f",
+        "s16le",
+
+        "pipe:1"
+    ]
+
+    try:
+
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0
+        )
+
+    except FileNotFoundError:
+
+        print(
+            "\nERROR: FFmpeg was not found."
+        )
+
+        print(
+            "Make sure FFmpeg is installed and available in PATH."
+        )
+
+        return []
+
+
+    # --------------------------------------------------------
+    # LOAD AST MODEL
+    # --------------------------------------------------------
+
+    model, feature_extractor = _load_model()
+
+
+    # --------------------------------------------------------
+    # AUDIO WINDOW
+    # --------------------------------------------------------
+
+    window_samples = int(
+        WINDOW_SECONDS * TARGET_SR
+    )
+
+    bytes_per_sample = 2
+
+    bytes_per_window = (
+        window_samples *
+        bytes_per_sample
+    )
+
+
+    # --------------------------------------------------------
+    # DETECTION STATE
+    # --------------------------------------------------------
+
+    streak = {}
+
+    events_found = []
+
+    alerted_events = set()
+
+    timestamp = 0.0
+
+
+    print("\n========================================")
+    print("       LIVE AST AUDIO MONITORING")
+    print("========================================")
+
+    print(
+        "\nListening for:"
+    )
+
+    for sound in WATCHLIST.values():
+
+        print(
+            f"  • {sound}"
+        )
+
+    print(
+        "\nPress Ctrl+C to stop.\n"
+    )
+
+
+    try:
+
+        while True:
+            raw_audio = process.stdout.read(
+                bytes_per_window
+            )
+
+            if not raw_audio:
+
+                print(
+                    "\n⚠️ RTSP audio stream ended."
+                )
+
+                break
+            if len(raw_audio) < bytes_per_window:
+
+                print(
+                    "\n⚠️ Incomplete audio window."
+                )
+
+                break
+            audio = np.frombuffer(
+                raw_audio,
+                dtype=np.int16
+            ).astype(
+                np.float32
+            )
+
+            audio = audio / 32768.0
+
+
+            inputs = feature_extractor(
+                audio,
+                sampling_rate=TARGET_SR,
+                return_tensors="pt"
+            )
+            with torch.no_grad():
+
+                logits = model(
+                    **inputs
+                ).logits
+
+
+            probabilities = torch.sigmoid(
+                logits
+            )[0]
+
+            top_indices = torch.topk(
+                probabilities,
+                k=5
+            ).indices.tolist()
+
+
+            print(
+                f"\n[RTSP Audio {timestamp:.1f}s]"
+            )
+
+
+            for idx in top_indices:
+
+                label = model.config.id2label[
+                    idx
+                ]
+
+                confidence = probabilities[
+                    idx
+                ].item()
+
+                print(
+                    f"  {label}: "
+                    f"{confidence:.3f}"
+                )
+
+            best_match = None
+
+
+            for idx in range(
+                len(probabilities)
+            ):
+
+                confidence = probabilities[
+                    idx
+                ].item()
+
+
+                if confidence < CONFIDENCE_THRESHOLD:
+
+                    continue
+
+
+                label = model.config.id2label[
+                    idx
+                ]
+
+
+                match = _match_watchlist(
+                    label
+                )
+
+
+                if match:
+
+                    if (
+                        best_match is None
+                        or confidence >
+                        best_match[1]
+                    ):
+
+                        best_match = (
+                            match,
+                            confidence,
+                            label
+                        )
+
+            if best_match:
+
+                name, confidence, label = (
+                    best_match
+                )
+
+
+                streak[name] = (
+                    streak.get(name, 0) + 1
+                )
+
+
+                print(
+                    f"\n🔊 {name} detected"
+                )
+
+                print(
+                    f"   AST label: {label}"
+                )
+
+                print(
+                    f"   Confidence: "
+                    f"{confidence:.3f}"
+                )
+
+                print(
+                    f"   Time: "
+                    f"{timestamp:.1f}s"
+                )
+
+                print(
+                    f"   Hit: "
+                    f"{streak[name]}/"
+                    f"{required_hits}"
+                )
+
+
+                # ------------------------------------------------
+                # EVENT KEY
+                # ------------------------------------------------
+
+                event_key = (
+                    name,
+                    round(timestamp, 1)
+                )
+
+
+                # =================================================
+                # CONFIRMED AUDIO EVENT
+                # =================================================
+
+                if (
+                    streak[name] >= required_hits
+                    and event_key
+                    not in alerted_events
+                ):
+
+                    alerted_events.add(
+                        event_key
+                    )
+
+
+                    events_found.append(
+                        (
+                            name,
+                            confidence,
+                            timestamp
+                        )
+                    )
+
+
+                    print(
+                        "\n========================================"
+                    )
+
+                    print(
+                        "          RTSP AUDIO ALERT"
+                    )
+
+                    print(
+                        "========================================"
+                    )
+
+                    print(
+                        f"Event: {name}"
+                    )
+
+                    print(
+                        f"Confidence: "
+                        f"{confidence:.3f}"
+                    )
+
+                    print(
+                        f"Time: "
+                        f"{timestamp:.1f}s"
+                    )
+
+                    event_type = (
+                        name
+                        .lower()
+                        .replace(" ", "_")
+                    )
+
+
+                    audio_event = create_event(
+                        event=event_type,
+                        label=name,
+                        confidence=confidence,
+                        timestamp=timestamp
+                    )
+
+
+                    print(
+                        "\nSTANDARDIZED AUDIO EVENT:"
+                    )
+
+                    print(
+                        audio_event
+                    )
+
+                    audio_alert(
+                        name,
+                        confidence,
+                        ""
+                    )
+
+                    if on_event:
+
+                        on_event(
+                            name,
+                            confidence,
+                            timestamp
+                        )
+                    streak[name] = 0
+
+
+            else:
+                streak = {}
+            timestamp += WINDOW_SECONDS
+
+
+    except KeyboardInterrupt:
+
+        print(
+            "\n\n🛑 RTSP audio monitoring stopped."
+        )
+
+
+    finally:
+
+        process.terminate()
+
+        try:
+
+            process.wait(
+                timeout=2
+            )
+
+        except subprocess.TimeoutExpired:
+
+            process.kill()
+
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "       RTSP AUDIO TEST COMPLETE"
+    )
+
+    print(
+        "========================================"
+    )
+
+
+    return events_found
 
     tmp_dir = tempfile.mkdtemp(
         prefix="vigilix_audio_"
@@ -978,12 +1318,440 @@ def run_on_video(
     )
 
     return events
-
-
 # ============================================================
-# RUN ON ANY SOURCE
+# RUN ON RTSP AUDIO
 # ============================================================
 
+def run_on_rtsp(rtsp_url, required_hits=1):
+
+    import subprocess
+    import torch
+
+    print("\n========================================")
+    print("       VIGILIX RTSP AUDIO DETECTION")
+    print("========================================")
+
+    print("\nRTSP source:")
+    print(rtsp_url)
+
+    print("\nStarting FFmpeg audio receiver...")
+
+    command = [
+        "ffmpeg",
+        "-rtsp_transport",
+        "tcp",
+        "-i",
+        rtsp_url,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(TARGET_SR),
+        "-f",
+        "s16le",
+        "pipe:1"
+    ]
+
+    try:
+
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0
+        )
+
+    except FileNotFoundError:
+
+        print("\n❌ FFmpeg was not found.")
+        print("Make sure FFmpeg is installed and available in PATH.")
+
+        return []
+
+
+    # --------------------------------------------------------
+    # LOAD AST MODEL
+    # --------------------------------------------------------
+
+    model, feature_extractor = _load_model()
+
+
+    # --------------------------------------------------------
+    # AUDIO WINDOW
+    # --------------------------------------------------------
+
+    window_samples = int(
+        WINDOW_SECONDS * TARGET_SR
+    )
+
+    bytes_per_window = (
+        window_samples * 2
+    )
+
+
+    # --------------------------------------------------------
+    # DETECTION STATE
+    # --------------------------------------------------------
+
+    streak = {}
+
+    events_found = []
+
+    alerted_events = set()
+
+    timestamp = 0.0
+
+
+    print("\n========================================")
+    print("       LIVE AST AUDIO MONITORING")
+    print("========================================")
+
+    print("\nListening for:")
+
+    for sound in WATCHLIST.values():
+
+        print(f"  • {sound}")
+
+    print("\nPress Ctrl+C to stop.\n")
+
+
+    try:
+
+        while True:
+
+            # ------------------------------------------------
+            # READ 2 SECONDS OF RTSP AUDIO
+            # ------------------------------------------------
+
+            raw_audio = process.stdout.read(
+                bytes_per_window
+            )
+
+            if not raw_audio:
+
+                print(
+                    "\n⚠️ No audio received from RTSP."
+                )
+
+                break
+
+
+            if len(raw_audio) < bytes_per_window:
+
+                print(
+                    "\n⚠️ Incomplete audio window."
+                )
+
+                break
+
+
+            # ------------------------------------------------
+            # PCM -> FLOAT32
+            # ------------------------------------------------
+
+            audio = np.frombuffer(
+                raw_audio,
+                dtype=np.int16
+            ).astype(
+                np.float32
+            )
+
+            audio = audio / 32768.0
+
+
+            # ------------------------------------------------
+            # AST FEATURE EXTRACTION
+            # ------------------------------------------------
+
+            inputs = feature_extractor(
+                audio,
+                sampling_rate=TARGET_SR,
+                return_tensors="pt"
+            )
+
+
+            # ------------------------------------------------
+            # AST PREDICTION
+            # ------------------------------------------------
+
+            with torch.no_grad():
+
+                logits = model(
+                    **inputs
+                ).logits
+
+
+            probabilities = torch.sigmoid(
+                logits
+            )[0]
+
+
+            # ------------------------------------------------
+            # TOP 5 PREDICTIONS
+            # ------------------------------------------------
+
+            top_indices = torch.topk(
+                probabilities,
+                k=5
+            ).indices.tolist()
+
+
+            print(
+                f"\n[RTSP Audio {timestamp:.1f}s]"
+            )
+
+
+            for idx in top_indices:
+
+                label = model.config.id2label[
+                    idx
+                ]
+
+                confidence = probabilities[
+                    idx
+                ].item()
+
+                print(
+                    f"  {label}: "
+                    f"{confidence:.3f}"
+                )
+
+
+            # ------------------------------------------------
+            # FIND WATCHLIST EVENT
+            # ------------------------------------------------
+
+            best_match = None
+
+
+            for idx in range(
+                len(probabilities)
+            ):
+
+                confidence = probabilities[
+                    idx
+                ].item()
+
+
+                if confidence < CONFIDENCE_THRESHOLD:
+
+                    continue
+
+
+                label = model.config.id2label[
+                    idx
+                ]
+
+
+                match = _match_watchlist(
+                    label
+                )
+
+
+                if match:
+
+                    if (
+                        best_match is None
+                        or confidence >
+                        best_match[1]
+                    ):
+
+                        best_match = (
+                            match,
+                            confidence,
+                            label
+                        )
+
+
+            # =================================================
+            # AUDIO EVENT DETECTED
+            # =================================================
+
+            if best_match:
+
+                name, confidence, label = (
+                    best_match
+                )
+
+
+                streak[name] = (
+                    streak.get(name, 0) + 1
+                )
+
+
+                print(
+                    f"\n🔊 {name} detected"
+                )
+
+                print(
+                    f"   AST label: {label}"
+                )
+
+                print(
+                    f"   Confidence: "
+                    f"{confidence:.3f}"
+                )
+
+                print(
+                    f"   Time: "
+                    f"{timestamp:.1f}s"
+                )
+
+                print(
+                    f"   Hit: "
+                    f"{streak[name]}/"
+                    f"{required_hits}"
+                )
+
+
+                # ------------------------------------------------
+                # CONFIRMED EVENT
+                # ------------------------------------------------
+
+                event_key = (
+                    name,
+                    round(timestamp, 1)
+                )
+
+
+                if (
+                    streak[name] >= required_hits
+                    and event_key not in alerted_events
+                ):
+
+                    alerted_events.add(
+                        event_key
+                    )
+
+
+                    events_found.append(
+                        (
+                            name,
+                            confidence,
+                            timestamp
+                        )
+                    )
+
+
+                    print(
+                        "\n========================================"
+                    )
+
+                    print(
+                        "          RTSP AUDIO ALERT"
+                    )
+
+                    print(
+                        "========================================"
+                    )
+
+                    print(
+                        f"Event: {name}"
+                    )
+
+                    print(
+                        f"Confidence: "
+                        f"{confidence:.3f}"
+                    )
+
+                    print(
+                        f"Time: "
+                        f"{timestamp:.1f}s"
+                    )
+
+
+                    # ------------------------------------------------
+                    # STANDARDIZED EVENT
+                    # ------------------------------------------------
+
+                    event_type = (
+                        name
+                        .lower()
+                        .replace(" ", "_")
+                    )
+
+
+                    audio_event = create_event(
+                        event=event_type,
+                        label=name,
+                        confidence=confidence,
+                        timestamp=timestamp
+                    )
+
+
+                    print(
+                        "\nSTANDARDIZED AUDIO EVENT:"
+                    )
+
+                    print(
+                        audio_event
+                    )
+
+
+                    # ------------------------------------------------
+                    # AUDIO ALERT
+                    # ------------------------------------------------
+
+                    audio_alert(
+                        name,
+                        confidence,
+                        ""
+                    )
+
+
+                    # Reset streak
+
+                    streak[name] = 0
+
+
+            else:
+
+                streak = {}
+
+
+            # ------------------------------------------------
+            # UPDATE TIMESTAMP
+            # ------------------------------------------------
+
+            timestamp += WINDOW_SECONDS
+
+
+    except KeyboardInterrupt:
+
+        print(
+            "\n\n🛑 RTSP audio monitoring stopped."
+        )
+
+
+    finally:
+
+        process.terminate()
+
+        try:
+
+            process.wait(
+                timeout=2
+            )
+
+        except subprocess.TimeoutExpired:
+
+            process.kill()
+
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "       RTSP AUDIO TEST COMPLETE"
+    )
+
+    print(
+        "========================================"
+    )
+
+
+    return events_found
 def run_on_source(
     source_path,
     keep_wav=False
@@ -992,11 +1760,6 @@ def run_on_source(
     source_path = os.path.abspath(
         source_path
     )
-
-    # --------------------------------------------------------
-    # FILE EXISTENCE
-    # --------------------------------------------------------
-
     if not os.path.isfile(
         source_path
     ):
@@ -1015,9 +1778,7 @@ def run_on_source(
         source_path
     )[1].lower()
 
-    # --------------------------------------------------------
-    # DIRECT AUDIO
-    # --------------------------------------------------------
+     
 
     if extension in AUDIO_EXTENSIONS:
 
@@ -1025,20 +1786,13 @@ def run_on_source(
             source_path
         )
 
-    # --------------------------------------------------------
-    # VIDEO
-    # --------------------------------------------------------
-
+ 
     if extension in VIDEO_EXTENSIONS:
 
         return run_on_video(
             source_path,
             keep_wav=keep_wav
         )
-
-    # --------------------------------------------------------
-    # UNKNOWN FORMAT
-    # --------------------------------------------------------
 
     print(
         f"\nERROR: Unsupported file type: "
@@ -1064,9 +1818,6 @@ def run_on_source(
     return []
 
 
-# ============================================================
-# COMMAND LINE ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
 
@@ -1092,11 +1843,16 @@ if __name__ == "__main__":
             "processing a video"
         )
     )
-
     args = parser.parse_args()
+    if args.source.startswith(
+    "rtsp://"
+    ): 
+        run_on_rtsp(
+        args.source
+       )
 
-    run_on_source(
+    else:
+     run_on_source(
         args.source,
         keep_wav=args.keep_wav
     )
-

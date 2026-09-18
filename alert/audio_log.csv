@@ -6,3 +6,4 @@ Timestamp,Event,Sound,Confidence,Clip
 2026-09-10 10:09:05,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_11s.wav
 2026-09-10 10:12:52,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_11s.wav
 2026-09-10 10:15:54,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_11s.wav
+2026-09-19 02:43:32,AUDIO EVENT DETECTED,Explosion,0.09,alert\audio\audio_Explosion_0s.wav

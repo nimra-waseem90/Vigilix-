@@ -1,51 +1,29 @@
 import cv2
 
-RTSP_URL = "rtsp://9627b0bf2a7b.entrypoint.cloud.wowza.com:1935/app-p5260J38/66abe4b9_stream1"
+RTSP_URL = "rtsp://127.0.0.1:8554/fire"
 
 print("Connecting to RTSP stream...")
 
 cap = cv2.VideoCapture(RTSP_URL)
 
-if not cap.isOpened():
-    print("❌ Failed to open RTSP stream")
-    exit()
+print("isOpened:", cap.isOpened())
 
-print("✅ RTSP stream opened successfully")
+print("\nTrying to read one frame...")
 
-fps = cap.get(cv2.CAP_PROP_FPS)
-width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(cap.get(cv2.CAP_PEROP_FRAME_HEIGHT))
+ret, frame = cap.read()
 
-print(f"FPS: {fps}")
-print(f"Resolution: {width}x{height}")
-print()
-print("Press Q to stop the stream.")
+print("ret =", ret)
 
-frame_count = 0
+if frame is None:
+    print("frame = None")
+else:
+    print("frame received!")
+    print("frame shape =", frame.shape)
 
-while True:
-
-    ret, frame = cap.read()
-
-    if not ret:
-        print("❌ Failed to receive frame")
-        break
-
-    frame_count += 1
-
-    if frame_count % 30 == 0:
-        print(f"Frames received: {frame_count}")
-
-    cv2.imshow("Vigilix RTSP Test", frame)
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        print("Stream stopped by user.")
-        break
+    cv2.imshow("RTSP Test", frame)
+    cv2.waitKey(5000)
 
 cap.release()
 cv2.destroyAllWindows()
 
-print()
-print("========================================")
-print("       RTSP STREAM TEST COMPLETE")
-print("========================================")
+print("\nTest finished.")

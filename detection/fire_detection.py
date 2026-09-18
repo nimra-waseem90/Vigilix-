@@ -1,149 +1,273 @@
-from fusion.event_format import create_event
+import os
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
+import cv2
 from ultralytics import YOLO
+from camera.camera_stream import CameraStream
 from alert.alert_manager import fire_alert
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
+from datetime import datetime
 MODEL_PATH = "model/detection/fire_smoke_model.pt"
 
 CONFIDENCE_THRESHOLD = 0.60
+
 REQUIRED_FRAMES = 3
-FRAME_SKIP = 3
+
+FIRE_CLASS_ID = 1
+
+RTSP_URL = "rtsp://127.0.0.1:8554/fire"
 
 
-# ============================================================
-# FIRE DETECTOR
-# ============================================================
+os.makedirs(
+    "alert/screenshots",
+    exist_ok=True
+)
 
-def detect_fire(source):
+# LOAD FIRE MODEL
 
-    model = YOLO(MODEL_PATH)
+print("Loading Fire YOLO model...")
 
-    consecutive_fire_frames = 0
-    alert_sent = False
+model = YOLO(MODEL_PATH)
 
-    results = model.predict(
-        source=source,
-        save=True,
+print("Fire model loaded successfully.")
+
+ 
+
+print("Starting RTSP camera stream...")
+
+camera = CameraStream(
+    source=RTSP_URL
+)
+
+camera.start()
+
+print("✅ RTSP stream started successfully.")
+print("Press Q to quit.")
+consecutive_fire_frames = 0
+
+alert_sent = False
+
+while True:
+
+    frame = camera.read()
+
+    if frame is None:
+
+        print("⚠️ No frame received.")
+
+        continue
+
+
+    results = model(
+        frame,
         conf=CONFIDENCE_THRESHOLD,
-        imgsz=320,
         device="cpu",
-        stream=True,
         verbose=False
     )
 
-    for frame_number, result in enumerate(results):
 
-        # --------------------------------------------
-        # Skip frames for CPU performance
-        # --------------------------------------------
+    fire_detected = False
 
-        if frame_number % FRAME_SKIP != 0:
+    highest_confidence = 0.0
+
+
+    # --------------------------------------------------------
+    # CHECK DETECTIONS
+    # --------------------------------------------------------
+
+    for result in results:
+
+        if result.boxes is None:
             continue
 
-        fire_detected = False
-        highest_confidence = 0.0
-
-        # --------------------------------------------
-        # Check detections
-        # --------------------------------------------
 
         for box in result.boxes:
 
-            class_id = int(box.cls[0])
-            confidence = float(box.conf[0])
+            class_id = int(
+                box.cls[0]
+            )
 
-            if class_id == 1:
+            confidence = float(
+                box.conf[0]
+            )
+
+
+            # ------------------------------------------------
+            # FIRE DETECTED
+            # ------------------------------------------------
+
+            if class_id == FIRE_CLASS_ID:
 
                 fire_detected = True
 
                 if confidence > highest_confidence:
+
                     highest_confidence = confidence
 
-        # --------------------------------------------
-        # Fire detected
-        # --------------------------------------------
 
-        if fire_detected:
+                # Bounding box
 
-            consecutive_fire_frames += 1
+                x1, y1, x2, y2 = map(
+                    int,
+                    box.xyxy[0]
+                )
 
-            print(
-                f"🔥 Fire detected | "
-                f"Confidence: {highest_confidence:.2f} | "
-                f"Frame: {frame_number} | "
-                f"Confirmation: "
-                f"{consecutive_fire_frames}/{REQUIRED_FRAMES}"
-            )
 
-        else:
+                cv2.rectangle(
+                    frame,
+                    (x1, y1),
+                    (x2, y2),
+                    (0, 0, 255),
+                    2
+                )
 
-            consecutive_fire_frames = 0
 
-        # --------------------------------------------
-        # CONFIRMED FIRE
-        # --------------------------------------------
+                cv2.putText(
+                    frame,
+                    f"FIRE {confidence:.2f}",
+                    (x1, max(y1 - 10, 20)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2
+                )
 
-        if (
-            consecutive_fire_frames >= REQUIRED_FRAMES
-            and not alert_sent
-        ):
 
-            annotated_frame = result.plot()
+    # ========================================================
+    # 3-FRAME CONFIRMATION
+    # ========================================================
 
-            # Existing alert system
-            fire_alert(
-                highest_confidence,
-                annotated_frame
-            )
+    if fire_detected:
 
-            # ----------------------------------------
-            # STANDARDIZED EVENT
-            # ----------------------------------------
+        consecutive_fire_frames += 1
 
-            fire_event = create_event(
-                event="fire",
-                label="Fire",
-                confidence=highest_confidence,
-                timestamp=frame_number/30.0
-            )
+        print(
+            f"🔥 FIRE DETECTED | "
+            f"Confirmation: "
+            f"{consecutive_fire_frames}/"
+            f"{REQUIRED_FRAMES} | "
+            f"Confidence: "
+            f"{highest_confidence:.2f}"
+        )
 
-            print(
-                "\nSTANDARDIZED FIRE EVENT:"
-            )
+    else:
 
-            print(fire_event)
+        # Reset confirmation if fire disappears
 
-            alert_sent = True
+        consecutive_fire_frames = 0
 
-            # ----------------------------------------
-            # RETURN EVENT TO FUSION
-            # ----------------------------------------
 
-            return fire_event
+    # ========================================================
+    # CONFIRMED FIRE
+    # ========================================================
 
-    print(
-        "\nFire/Smoke video detection completed!"
+    if (
+        consecutive_fire_frames >= REQUIRED_FRAMES
+        and not alert_sent
+    ):
+
+        print(
+            "\n🚨 FIRE CONFIRMED!"
+        )
+
+
+        # ----------------------------------------------------
+        # TIMESTAMP
+        # ----------------------------------------------------
+
+        timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S"
+        )
+
+
+        # ----------------------------------------------------
+        # SCREENSHOT PATH
+        # ----------------------------------------------------
+
+        screenshot_path = (
+            f"alert/screenshots/"
+            f"fire_{timestamp}.jpg"
+        )
+
+
+        # ----------------------------------------------------
+        # SAVE SCREENSHOT
+        # ----------------------------------------------------
+
+        cv2.imwrite(
+            screenshot_path,
+            frame
+        )
+
+
+        print(
+            f"📸 Fire screenshot saved: "
+            f"{screenshot_path}"
+        )
+
+
+        # ----------------------------------------------------
+        # TRIGGER FIRE ALARM
+        # ----------------------------------------------------
+
+        fire_alert(
+            highest_confidence,
+            screenshot_path
+        )
+
+
+        print(
+            "🚨 Fire alarm triggered."
+        )
+
+
+        # Prevent repeated alerts
+
+        alert_sent = True
+
+
+    # ========================================================
+    # DISPLAY STATUS
+    # ========================================================
+
+    if fire_detected:
+
+        cv2.putText(
+            frame,
+            f"FIRE DETECTION "
+            f"{consecutive_fire_frames}/"
+            f"{REQUIRED_FRAMES}",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (0, 0, 255),
+            3
+        )
+
+    else:
+
+        cv2.putText(
+            frame,
+            "Monitoring...",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2
+        )
+
+
+    cv2.imshow(
+        "Vigilix - Fire Detection",
+        frame
     )
+    if cv2.waitKey(1) & 0xFF == ord("q"):
 
-    return None
+        break
 
+camera.release()
 
-# ============================================================
-# STANDALONE TEST
-# ============================================================
+cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-
-    event = detect_fire(
-        "data/raw/videos/fire_test.mp4"
-    )
-
-    print(
-        "\nFINAL FIRE EVENT:"
-    )
-
-    print(event)
+print(
+    "Fire RTSP detection stopped."
+)

@@ -70,10 +70,7 @@ def main():
     fusion = FusionEngine(
         time_window=5.0
     )
-
-    # ------------------------------------
-    # FIRE DETECTION
-    # ------------------------------------
+ 
 
     print("\n🔥 Starting Fire Detection...")
 
@@ -86,16 +83,11 @@ def main():
     fire_event
 )
 
-# Fire and weapon are currently
-# being tested using separate videos.
-# Clear the previous event before
-# starting the next independent test.
+
 
     fusion.clear_events()
 
-# ------------------------------------
-# WEAPON DETECTION
-# ------------------------------------
+ 
 
     print("\n🔫 Starting Weapon Detection...")
 
